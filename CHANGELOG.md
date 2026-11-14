@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.0.4-impa.1] - 13-11-2026 — Edição Comunidade IMPA
+
+Base: `getfy-opensource/getfy` main de 18-09-2026 (2.0.4 + correções posteriores).
+
+### Segurança
+
+- **Laravel 12.72.0** (antes 12.53.0): corrige CVE-2026-114509 (bypass do TokenGuard, crítico), CVE-2026-114508, CVE-2026-128083, a falha de URL assinada vencida (GHSA-v5ch-g375-82r6) e a injeção de cabeçalho no e-mail.
+- Dependências PHP atualizadas: guzzlehttp/guzzle 7.16.1, guzzlehttp/psr7 2.13.3, league/commonmark 2.10.7, mtdowling/jmespath.php 2.9.2 (crítico), web-token/jwt-library 4.2.7, setasign/fpdi 2.6.10, Symfony 7.4.2x, aws/aws-sdk-php 3.403.6. `composer audit`: 0 alertas (antes 61).
+- Dependências JavaScript atualizadas (Vite e outras): `npm audit`: 0 alertas (antes 13, 2 críticos).
+- **Chave VAPID vazada**: `.docker/pwa_vapid.env` (com a chave privada das notificações push) estava no repositório original. Removido; o entrypoint detecta essa chave e gera um par novo. Quem usa push precisa reativar as notificações no navegador depois da atualização.
+- Removidos 50 arquivos de cache de views compilados que estavam no repositório; `.gitignore` passa a bloquear `.docker/` e esses caches.
+- `composer.json`: `platform.php` fixado em 8.2 (mesma versão da imagem), para nunca resolver dependências incompatíveis.
+
+### Correções
+
+- **Importação de produtos**: pacotes com ofertas sem `checkout_slug` (exportados por versões anteriores) falhavam no PostgreSQL; agora a oferta ganha um link novo.
+- **PostgreSQL**: migrações ajustadas para tipos de coluna corretos (uuid/varchar de `product_id`), nova migração de correção de tipos e backfill de tenant que não derruba o painel.
+- **Docker atrás de proxy (Traefik/Portainer)**: `APP_URL` do compose tem prioridade; com domínio público o setup é marcado como concluído (sem loop `/` ↔ `/docker-setup`); `SESSION_SECURE_COOKIE` automático em HTTPS; host/porta padrão do banco conforme `DB_CONNECTION`.
+- **Auto-migração**: só dispara quando falta tabela (antes qualquer erro de banco podia gerar loop de redirecionamento).
+- **Login**: redirecionamento de visitantes por caminho relativo (evita host/protocolo errado atrás de proxy).
+- **Conferência de pagamentos pendentes**: tentativas em 5, 10, 15, 30, 60, 120, 240, 480, 720 e 1440 minutos (antes parava em 15 minutos).
+- **Renovação de assinatura**: com só PIX disponível, vai direto para a cobrança.
+
+### Novidades
+
+- **Imagem Docker completa** (`impa365/getfy-opensource:2.0.4-impa.1`): `pdo_pgsql`, `gd` com freetype/jpeg, dependências e front já compilados.
+- **Mídia das aulas** servida pelo app (vídeo, áudio, materiais e PDFs) sem expor a URL real do armazenamento.
+- Links de checkout aceitam letras maiúsculas, hífen e sublinhado (`/c/meu-produto`).
 ## [2.0.4] - 03-07-2026
 
 ### Novidades

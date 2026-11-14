@@ -41,12 +41,74 @@ return new class extends Migration
     {
         $driver = Schema::getConnection()->getDriverName();
 
-        if ($driver !== 'mysql' && $driver !== 'mariadb') {
+        if ($driver === 'mysql' || $driver === 'mariadb') {
+            // MySQL/MariaDB fazem commit implícito em DDL (ALTER TABLE, etc.) — não usar DB::transaction().
+            $this->runUpMySQL();
+
             return;
         }
 
-        // MySQL/MariaDB fazem commit implícito em DDL (ALTER TABLE, etc.) — não usar DB::transaction().
-        $this->runUpMySQL();
+        // PostgreSQL/SQLite: só instalação nova (banco vazio). Migração com dados existentes não é suportada.
+        if ($this->isFreshProductUuidInstall()) {
+            $this->runUpNonMysqlFresh();
+        }
+    }
+
+    /**
+     * Fresh install on pgsql/sqlite: products.id and related FKs become varchar(36)
+     * so later migrations that create string(36) product_id FKs succeed.
+     */
+    private function runUpNonMysqlFresh(): void
+    {
+        $this->dropProductForeignKeys();
+
+        $driver = Schema::getConnection()->getDriverName();
+        if ($driver === 'pgsql') {
+            // Avoid Laravel dropColumn quirks with serial/identity PK on Postgres.
+            DB::statement('ALTER TABLE products DROP CONSTRAINT IF EXISTS products_pkey');
+            DB::statement('ALTER TABLE products DROP COLUMN id');
+            DB::statement('ALTER TABLE products ADD COLUMN id character varying(36) NOT NULL');
+            DB::statement('ALTER TABLE products ADD PRIMARY KEY (id)');
+        } else {
+            Schema::table('products', function (Blueprint $table) {
+                $table->dropColumn('id');
+            });
+            Schema::table('products', function (Blueprint $table) {
+                $table->string('id', 36)->primary();
+            });
+        }
+
+        foreach (self::PRODUCT_FK_TABLES as $table => $columns) {
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+            foreach ($columns as $column) {
+                if (! Schema::hasColumn($table, $column)) {
+                    continue;
+                }
+                $nullable = $column === 'related_product_id'
+                    || (isset(self::NULLABLE_PRODUCT_COLUMNS[$table]) && in_array($column, self::NULLABLE_PRODUCT_COLUMNS[$table], true));
+
+                if ($driver === 'pgsql') {
+                    DB::statement("ALTER TABLE {$table} DROP COLUMN IF EXISTS {$column}");
+                    $nullSql = $nullable ? 'NULL' : 'NOT NULL';
+                    DB::statement("ALTER TABLE {$table} ADD COLUMN {$column} character varying(36) {$nullSql}");
+                } else {
+                    Schema::table($table, function (Blueprint $t) use ($column) {
+                        $t->dropColumn($column);
+                    });
+                    Schema::table($table, function (Blueprint $t) use ($column, $nullable) {
+                        if ($nullable) {
+                            $t->string($column, 36)->nullable();
+                        } else {
+                            $t->string($column, 36);
+                        }
+                    });
+                }
+            }
+        }
+
+        $this->restoreProductForeignKeys();
     }
 
     private function runUpMySQL(): void

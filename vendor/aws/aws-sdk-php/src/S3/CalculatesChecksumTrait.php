@@ -5,10 +5,11 @@ use AWS\CRT\CRT;
 use Aws\Exception\CommonRuntimeException;
 use GuzzleHttp\Psr7;
 use InvalidArgumentException;
+use Psr\Http\Message\StreamInterface;
 
 trait CalculatesChecksumTrait
 {
-    private static $supportedAlgorithms = [
+    public static array $supportedAlgorithms = [
         'crc32c' => true,
         'crc32' => true,
         'sha256' => true,
@@ -25,20 +26,15 @@ trait CalculatesChecksumTrait
         $useCrt = extension_loaded('awscrt');
 
         if (isset(self::$supportedAlgorithms[$requestedAlgorithm])) {
-            if ($useCrt) {
-                $crt = new Crt();
-                switch ($requestedAlgorithm) {
-                    case 'crc32c':
-                        return base64_encode(pack('N*',($crt::crc32c($value))));
-                    case 'crc32':
-                        return base64_encode(pack('N*',($crt::crc32($value))));
-                    default:
-                        break;
-                }
+            $isCrtAlgorithm = $requestedAlgorithm === 'crc32c'
+                || $requestedAlgorithm === 'crc32';
+            if ($useCrt && $isCrtAlgorithm) {
+                return self::getCrtEncodedValue($requestedAlgorithm, $value);
             }
 
             if ($requestedAlgorithm === 'crc32c') {
-                throw new CommonRuntimeException("crc32c is not supported for checksums "
+                throw new CommonRuntimeException(
+                    "crc32c is not supported for checksums "
                     . "without use of the common runtime for php.  Please enable the CRT or choose "
                     . "a different algorithm."
                 );
@@ -47,7 +43,14 @@ trait CalculatesChecksumTrait
             if ($requestedAlgorithm === "crc32") {
                 $requestedAlgorithm = "crc32b";
             }
-            return base64_encode(Psr7\Utils::hash($value, $requestedAlgorithm, true));
+
+            return base64_encode(
+                Psr7\Utils::hash(
+                    Psr7\Utils::streamFor($value),
+                    $requestedAlgorithm,
+                    true
+                )
+            );
         }
 
         $validAlgorithms = implode(', ', array_keys(self::$supportedAlgorithms));
@@ -55,5 +58,55 @@ trait CalculatesChecksumTrait
             "Invalid checksum requested: {$requestedAlgorithm}."
             . "  Valid algorithms supported by the runtime are {$validAlgorithms}."
         );
+    }
+
+    /**
+     * @param string $requestedAlgorithm
+     * @param mixed $value
+     *
+     * @return string
+     */
+    private static function getCrtEncodedValue(
+        string $requestedAlgorithm,
+        $value
+    ): string
+    {
+        $crt = new Crt();
+        $stream = $value instanceof StreamInterface ? $value : null;
+        $position = $stream !== null && $stream->isSeekable()
+            ? $stream->tell()
+            : null;
+
+        try {
+            $input = $stream !== null ? (string) $stream : $value;
+            $checksum = $requestedAlgorithm === 'crc32c'
+                ? $crt::crc32c($input)
+                : $crt::crc32($input);
+
+            return base64_encode(pack('N*', $checksum));
+        } finally {
+            if ($position !== null) {
+                $stream->seek($position);
+            }
+        }
+    }
+
+    /**
+     * Returns the first checksum available, if available.
+     *
+     * @param array $parameters
+     *
+     * @return string|null
+     */
+    public static function filterChecksum(array $parameters): ?string
+    {
+        foreach (self::$supportedAlgorithms as $algorithm => $_) {
+            $checksumAlgorithm = "Checksum" . strtoupper($algorithm);
+            if (isset($parameters[$checksumAlgorithm])) {
+                return $checksumAlgorithm;
+            }
+        }
+
+        return null;
     }
 }

@@ -17,7 +17,8 @@ return new class extends Migration
         Schema::create('checkout_sessions', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('tenant_id')->nullable()->index();
-            $table->unsignedBigInteger('product_id');
+            // products.id é string(36) após a migration de UUID — não usar unsignedBigInteger.
+            $table->string('product_id', 36);
             $table->unsignedBigInteger('product_offer_id')->nullable();
             $table->unsignedBigInteger('subscription_plan_id')->nullable();
             $table->string('checkout_slug', 64);

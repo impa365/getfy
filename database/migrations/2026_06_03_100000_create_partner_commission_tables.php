@@ -21,7 +21,7 @@ return new class extends Migration
 
         Schema::create('product_affiliate_programs', function (Blueprint $table) {
             $table->id();
-            $table->uuid('product_id')->index();
+            $table->string('product_id', 36)->index();
             $table->boolean('enabled')->default(false);
             $table->decimal('default_commission_percent', 8, 4)->default(0);
             $table->boolean('manual_approval')->default(true);
@@ -37,7 +37,7 @@ return new class extends Migration
 
         Schema::create('product_coproducers', function (Blueprint $table) {
             $table->id();
-            $table->uuid('product_id')->index();
+            $table->string('product_id', 36)->index();
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('email');
             $table->string('invite_token', 64)->nullable()->unique();
@@ -60,7 +60,7 @@ return new class extends Migration
 
         Schema::create('product_affiliates', function (Blueprint $table) {
             $table->id();
-            $table->uuid('product_id')->index();
+            $table->string('product_id', 36)->index();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('affiliate_code', 32);
             $table->decimal('commission_percent', 8, 4)->nullable();

@@ -82,7 +82,7 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
     if (auth()->check()) {
         $user = auth()->user();
         if ($user->canAccessPanel()) {
-            if ($user->isPartner()) {
+            if ($user->isPartner() || $user->usesPartnerPanel()) {
                 return redirect('/parceiro');
             }
 
@@ -178,7 +178,7 @@ Route::post('/commerce/checkout/pay', [\App\Http\Controllers\Commerce\CommerceCh
 
 Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'])
     ->name('checkout.show')
-    ->where('slug', '[a-z0-9]{6,16}')
+    ->where('slug', '[a-zA-Z0-9_-]{3,64}')
     ->middleware('throttle:checkout-show');
 Route::get('/c/{slug}/pix-parcelado-bootstrap', [\App\Http\Controllers\CheckoutController::class, 'pixParceladoBootstrap'])
     ->name('checkout.pix-parcelado-bootstrap')
@@ -806,6 +806,14 @@ Route::prefix('m/{slug}')->where(['slug' => '[a-zA-Z0-9\-]{3,64}'])->middleware(
         Route::get('aula/{lesson}/pdf/{fileIndex}', [\App\Http\Controllers\MemberAreaAppController::class, 'presentationPdf'])
             ->whereNumber('fileIndex')
             ->name('member-area-app.lesson.pdf');
+        // Mídia (vídeo/áudio) servida pelo app: esconde a URL real do storage (S3/rclone/Drive).
+        Route::get('aula/{lesson}/media', [\App\Http\Controllers\MemberAreaAppController::class, 'lessonMedia'])
+            ->name('member-area-app.lesson.media');
+        // Arquivos da aula (materiais/downloads e PDFs): proxy autenticado, sem expor a origem.
+        Route::get('aula/{lesson}/file/{kind}/{fileIndex}', [\App\Http\Controllers\MemberAreaAppController::class, 'lessonFile'])
+            ->whereIn('kind', ['content', 'support'])
+            ->whereNumber('fileIndex')
+            ->name('member-area-app.lesson.file');
         Route::get('aula/{lesson}/pdf-annotations', [\App\Http\Controllers\MemberAreaAppController::class, 'getLessonPdfAnnotations'])->name('member-area-app.lesson.pdf-annotations');
         Route::put('aula/{lesson}/pdf-annotations', [\App\Http\Controllers\MemberAreaAppController::class, 'putLessonPdfAnnotations'])->middleware('throttle:120,1')->name('member-area-app.lesson.pdf-annotations.put');
         Route::post('aula/{lesson}/like', [\App\Http\Controllers\MemberAreaAppController::class, 'toggleLessonLike'])->middleware('throttle:60,1')->name('member-area-app.lesson.like');
@@ -880,6 +888,14 @@ Route::middleware(['web', 'member.area.resolve.by.host'])->group(function () {
         Route::get('aula/{lesson}/pdf/{fileIndex}', [\App\Http\Controllers\MemberAreaAppController::class, 'presentationPdf'])
             ->whereNumber('fileIndex')
             ->name('member-area-app.lesson.pdf.host');
+        // Mídia (vídeo/áudio) servida pelo app: esconde a URL real do storage (S3/rclone/Drive).
+        Route::get('aula/{lesson}/media', [\App\Http\Controllers\MemberAreaAppController::class, 'lessonMedia'])
+            ->name('member-area-app.lesson.media.host');
+        // Arquivos da aula (materiais/downloads e PDFs): proxy autenticado, sem expor a origem.
+        Route::get('aula/{lesson}/file/{kind}/{fileIndex}', [\App\Http\Controllers\MemberAreaAppController::class, 'lessonFile'])
+            ->whereIn('kind', ['content', 'support'])
+            ->whereNumber('fileIndex')
+            ->name('member-area-app.lesson.file.host');
         Route::get('aula/{lesson}/pdf-annotations', [\App\Http\Controllers\MemberAreaAppController::class, 'getLessonPdfAnnotations'])->name('member-area-app.lesson.pdf-annotations.host');
         Route::put('aula/{lesson}/pdf-annotations', [\App\Http\Controllers\MemberAreaAppController::class, 'putLessonPdfAnnotations'])->middleware('throttle:120,1')->name('member-area-app.lesson.pdf-annotations.put.host');
         Route::post('aula/{lesson}/like', [\App\Http\Controllers\MemberAreaAppController::class, 'toggleLessonLike'])->middleware('throttle:60,1')->name('member-area-app.lesson.like.host');

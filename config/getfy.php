@@ -56,7 +56,7 @@ return [
         ),
     ],
     'version' => $version,
-    'update_repository_url' => env('GETFY_UPDATE_REPO', 'https://github.com/getfy-opensource/getfy.git'),
+    'update_repository_url' => env('GETFY_UPDATE_REPO', 'https://github.com/impa365/getfy.git'),
     'update_branch' => env('GETFY_UPDATE_BRANCH', 'main'),
     'updates_enabled' => env('GETFY_UPDATES_ENABLED', true),
     'php_path' => env('GETFY_PHP_PATH', null),

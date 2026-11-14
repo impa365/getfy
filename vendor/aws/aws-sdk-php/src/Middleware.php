@@ -91,17 +91,17 @@ final class Middleware
     public static function validation(Service $api, ?Validator $validator = null)
     {
         $validator = $validator ?: new Validator();
+        if ($api->isModifiedModel()) {
+            $api = new Service(
+                $api->getDefinition(),
+                $api->getProvider()
+            );
+        }
         return function (callable $handler) use ($api, $validator) {
             return function (
                 CommandInterface $command,
                 ?RequestInterface $request = null
             ) use ($api, $validator, $handler) {
-                if ($api->isModifiedModel()) {
-                    $api = new Service(
-                        $api->getDefinition(),
-                        $api->getProvider()
-                    );
-                }
                 $operation = $api->getOperation($command->getName());
                 $validator->validate(
                     $command->getName(),
@@ -179,7 +179,10 @@ final class Middleware
 
                 // Credential signing path
                 $credentialPromise = ($signer instanceof S3ExpressSignature)
-                    ? $config['s3_express_identity_provider']($command)
+                    ? $config['s3_express_identity_provider'](
+                        $command,
+                        $credProvider()->wait()
+                    )
                     : $credProvider();
 
                 return $credentialPromise->then(function (CredentialsInterface $creds) use ($handler,
@@ -265,7 +268,7 @@ final class Middleware
                 RequestInterface $request
             ) use ($handler){
                 return $handler($command, $request->withHeader(
-                    'aws-sdk-invocation-id',
+                    'amz-sdk-invocation-id',
                     md5(uniqid(gethostname(), true))
                 ));
             };
@@ -384,8 +387,8 @@ final class Middleware
      */
     public static function mapRequest(callable $f)
     {
-        return function (callable $handler) use ($f) {
-            return function (
+        return static function (callable $handler) use ($f) {
+            return static function (
                 CommandInterface $command,
                 ?RequestInterface $request = null
             ) use ($handler, $f) {

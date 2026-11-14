@@ -59,6 +59,17 @@ watch(
     { immediate: true }
 );
 
+watch(
+    onlyPix,
+    (yes) => {
+        // Só PIX disponível: vai direto para a cobrança (sem tela de escolha).
+        if (yes && props.auto_pix_url) {
+            window.location.href = props.auto_pix_url;
+        }
+    },
+    { immediate: true }
+);
+
 const amountFormatted = computed(() => {
     return new Intl.NumberFormat('pt-BR', {
         style: 'currency',

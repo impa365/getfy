@@ -24,6 +24,16 @@ fi
 
 rm -f public/hot 2>/dev/null || true
 
+# Getfy IMPA: this VAPID pair was published in the upstream repository (.docker/pwa_vapid.env, Jul/2026), so its
+# private key is public. Any install still using it gets a fresh pair (browsers must re-enable notifications).
+GETFY_LEAKED_VAPID_PUBLIC="BMFA7gkxzpUFM9JSm9z1COguMHou42CKvCUUUhvdPDXnwy16v98jA8runQw0b3uYWpKvnCrylmM5masIraWcklM="
+for f in .docker/pwa_vapid.env .env; do
+  if [ -f "$f" ] && grep -q "$GETFY_LEAKED_VAPID_PUBLIC" "$f"; then
+    sed -i '/^PWA_VAPID_PUBLIC=/d;/^PWA_VAPID_PRIVATE=/d' "$f"
+    echo "[getfy] Chave VAPID vazada no repositorio original encontrada em $f: removida, um par novo sera gerado."
+  fi
+done
+
 # VAPID compartilhado (.docker/pwa_vapid.env): só no worker (GETFY_RUN_SETUP!=true).
 # No container "app" (setup), injetar sempre no boot sobrescrevia um .env válido com chaves antigas/truncadas
 # do volume e impedia php artisan pwa:vapid de rodar (linhas já preenchidas, porém inválidas).
@@ -90,12 +100,39 @@ $cronSecret = $existingCronSecret;
 if (!is_string($cronSecret) || $cronSecret === "") {
     $cronSecret = rtrim(strtr(base64_encode(random_bytes(24)), "+/", "-_"), "=");
 }
-$appUrl = $setupDone ? ($sharedAppUrl !== "" ? $sharedAppUrl : $existingAppUrl) : ((getenv("GETFY_APP_URL") ?: getenv("APP_URL")) ?: "http://localhost");
+// Preferir URL do compose/Portainer; senao volume; senao .env existente.
+// NUNCA use aspas simples literais dentro deste bloco php -r '...' (quebra o shell).
+$envAppUrl = trim((string) (getenv("GETFY_APP_URL") ?: getenv("APP_URL") ?: ""));
+$envAppUrl = trim($envAppUrl, " \t\n\r\0\x0B\"`\x27");
+if ($envAppUrl !== "" && preg_match("#^https?://#i", $envAppUrl)) {
+    $appUrl = $envAppUrl;
+} elseif ($setupDone && $sharedAppUrl !== "") {
+    $appUrl = $sharedAppUrl;
+} else {
+    $appUrl = $existingAppUrl ?: ($envAppUrl !== "" ? $envAppUrl : "http://localhost");
+}
 $parts = parse_url((string) $appUrl);
 $scheme = strtolower((string) ($parts["scheme"] ?? ""));
 $host = strtolower((string) ($parts["host"] ?? ""));
 if ($scheme === "http" && $host !== "" && $host !== "localhost" && $host !== "127.0.0.1" && $host !== "::1" && filter_var($host, FILTER_VALIDATE_IP) === false) {
     $appUrl = "https://" . $host;
+}
+// Com APP_URL publica no Portainer, marcar setup como concluido (evita loop / <-> /docker-setup).
+if ($appUrl && preg_match("#^https?://#i", $appUrl) && $host !== "" && $host !== "localhost" && $host !== "127.0.0.1") {
+    @mkdir(".docker", 0777, true);
+    @file_put_contents(".docker/app.url", $appUrl);
+    if (!is_file(".docker/setup.done")) {
+        @file_put_contents(".docker/setup.done", "true");
+    }
+    $setupDone = true;
+}
+$dbConnection = getenv("DB_CONNECTION") ?: "mysql";
+$dbIsPgsql = ($dbConnection === "pgsql" || $dbConnection === "postgres" || $dbConnection === "postgresql");
+$dbHostDefault = $dbIsPgsql ? "pgsql" : "mysql";
+$dbPortDefault = $dbIsPgsql ? "5432" : "3306";
+$sessionSecure = getenv("SESSION_SECURE_COOKIE");
+if ($sessionSecure === false || $sessionSecure === "") {
+    $sessionSecure = str_starts_with((string) $appUrl, "https://") ? "true" : "false";
 }
 $vars = [
     "APP_NAME" => getenv("APP_NAME") ?: "Getfy",
@@ -106,10 +143,11 @@ $vars = [
     "APP_INSTALLED" => getenv("APP_INSTALLED") ?: "true",
     "DOCKER_SETUP_DONE" => $setupDone ? "true" : null,
     "APP_AUTO_MIGRATE" => getenv("APP_AUTO_MIGRATE") ?: "false",
+    "SESSION_SECURE_COOKIE" => $sessionSecure,
     "CRON_SECRET" => $cronSecret ?: null,
-    "DB_CONNECTION" => getenv("DB_CONNECTION") ?: "mysql",
-    "DB_HOST" => getenv("DB_HOST") ?: "mysql",
-    "DB_PORT" => getenv("DB_PORT") ?: "3306",
+    "DB_CONNECTION" => $dbIsPgsql ? "pgsql" : $dbConnection,
+    "DB_HOST" => getenv("DB_HOST") ?: $dbHostDefault,
+    "DB_PORT" => getenv("DB_PORT") ?: $dbPortDefault,
     "DB_DATABASE" => getenv("DB_DATABASE") ?: "getfy",
     "DB_USERNAME" => getenv("DB_USERNAME") ?: "getfy",
     "DB_PASSWORD" => getenv("DB_PASSWORD") ?: "getfy",
@@ -143,27 +181,45 @@ foreach ($vars as $key => $value) {
 file_put_contents($envFile, $content);
 '
 
-DB_HOST="${DB_HOST:-mysql}"
-DB_PORT="${DB_PORT:-3306}"
+DB_CONNECTION="${DB_CONNECTION:-mysql}"
+case "$DB_CONNECTION" in
+  pgsql|postgres|postgresql)
+    DB_CONNECTION="pgsql"
+    DB_HOST="${DB_HOST:-pgsql}"
+    DB_PORT="${DB_PORT:-5432}"
+    ;;
+  *)
+    DB_HOST="${DB_HOST:-mysql}"
+    DB_PORT="${DB_PORT:-3306}"
+    ;;
+esac
 DB_DATABASE="${DB_DATABASE:-getfy}"
 DB_USERNAME="${DB_USERNAME:-${MYSQL_USER:-getfy}}"
 DB_PASSWORD="${DB_PASSWORD:-${MYSQL_PASSWORD:-getfy}}"
 
 DB_OK=0
 for i in $(seq 1 60); do
-  if php -r "try { new PDO('mysql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_DATABASE}', '${DB_USERNAME}', '${DB_PASSWORD}', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); } catch (Throwable \$e) { exit(1); }" >/dev/null 2>&1; then
-    DB_OK=1
-    break
+  if [ "$DB_CONNECTION" = "pgsql" ]; then
+    if php -r "try { new PDO('pgsql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_DATABASE}', '${DB_USERNAME}', '${DB_PASSWORD}', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); } catch (Throwable \$e) { exit(1); }" >/dev/null 2>&1; then
+      DB_OK=1
+      break
+    fi
+  else
+    if php -r "try { new PDO('mysql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_DATABASE}', '${DB_USERNAME}', '${DB_PASSWORD}', [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); } catch (Throwable \$e) { exit(1); }" >/dev/null 2>&1; then
+      DB_OK=1
+      break
+    fi
   fi
   sleep 1
 done
 
 if [ "$DB_OK" -ne 1 ]; then
-  echo "MySQL indisponível. Verifique DB_HOST/DB_PORT e o serviço mysql no compose."
+  echo "Banco indisponível (${DB_CONNECTION}). Verifique DB_HOST/DB_PORT e o serviço de banco no compose."
   exit 1
 fi
 
 if [ "${GETFY_RUN_SETUP:-true}" = "true" ]; then
+  # Imagem de release já traz vendor/; fallback só se faltar (build local sem bake).
   if [ ! -f vendor/autoload.php ]; then
     composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
   fi

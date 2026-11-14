@@ -52,7 +52,7 @@ return new class extends Migration
             $table->unsignedBigInteger('checkout_session_id')->nullable()->index();
             $table->string('session_token', 64)->index();
             $table->unsignedBigInteger('tenant_id')->nullable()->index();
-            $table->uuid('product_id')->nullable()->index();
+            $table->string('product_id', 36)->nullable()->index();
             $table->string('field_key', 64);
             $table->string('event', 32);
             $table->timestamp('created_at')->useCurrent();

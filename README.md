@@ -1,3 +1,29 @@
+# Getfy — Edição Comunidade IMPA
+
+> Versão do **Getfy (open source)** mantida pela comunidade **IMPA 365**, com correções de segurança, suporte a PostgreSQL e melhorias de instalação.
+> Projeto original: [getfy-opensource/getfy](https://github.com/getfy-opensource/getfy). Todos os créditos do Getfy são dos autores originais; a marca e a licença (Getfy Community License, arquivo `LICENSE`) continuam valendo.
+
+**Site, guia de instalação e vídeos:** https://getfy.impa365.com
+
+## O que esta edição traz em relação ao original
+
+- **Segurança**
+  - Laravel 12.53 → **12.72** (corrige o bypass de autenticação do TokenGuard, crítico, e outras falhas de out–nov/2026).
+  - 61 alertas de segurança das dependências PHP corrigidos (Guzzle, Symfony, CommonMark, JWT, jmespath e outros) e 13 das dependências JavaScript (Vite e outras). `composer audit` e `npm audit` sem alertas.
+  - Remove do repositório a chave **VAPID** (notificações push) que estava publicada em `.docker/pwa_vapid.env`; instalações que ainda usam essa chave ganham um par novo automaticamente ao atualizar.
+  - Remove arquivos de cache compilados que tinham ido para o repositório.
+- **PostgreSQL** pronto para produção: imagem com `pdo_pgsql`, migrações corrigidas e correção de tipos de colunas.
+- **Imagem Docker completa** (`impa365/getfy-opensource`): dependências PHP e front já compilados, sobe em segundos.
+- **Instalação atrás do Traefik/Portainer**: a URL do compose é respeitada e o Getfy pula a tela de configuração quando já tem domínio; cookie seguro automático em HTTPS; sem loop de redirecionamento.
+- **Importação de produtos (.getfy-product)**: rota de importação disponível e correção para pacotes com ofertas antigas.
+- **Pagamentos**: conferência automática de pedidos pendentes estendida até 24 horas (para quem usa gateway sem webhook).
+- **Área de membros**: vídeos, áudios e arquivos das aulas entregues pelo próprio Getfy, sem expor o endereço real do armazenamento.
+
+## Instalar com Docker (Portainer / Docker Swarm)
+
+Use a imagem `impa365/getfy-opensource:latest` com PostgreSQL ou MySQL. O passo a passo completo, com a stack pronta para colar no Portainer, está em **https://getfy.impa365.com**.
+
+---
 # Getfy (Open Source)
 
 Plataforma Laravel + Vue para checkout, área de membros e estrutura completa de pagamentos.
@@ -5,7 +31,7 @@ Plataforma Laravel + Vue para checkout, área de membros e estrutura completa de
 ## Instalação rápida
 
 - Hospedagem compartilhada (upload manual): acesse `https://SEU_DOMINIO/install`
-- VPS (terminal): `bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"`
+- VPS (terminal): `bash -c "$(curl -fsSL https://raw.githubusercontent.com/impa365/getfy/main/install.sh)"`
 - Docker na Hostinger (deploy por URL do GitHub): use `docker-compose.yml` do repositório
 
 ---
@@ -98,7 +124,7 @@ Este modo instala e sobe tudo via Docker (app + banco + redis + scheduler).
 Conecte via SSH e execute:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/impa365/getfy/main/install.sh)"
 ```
 
 O que esse comando faz:
@@ -124,7 +150,7 @@ Abra e informe o domínio público (ex.: `seudominio.com`). Isso ajusta `APP_URL
 Você pode definir variáveis antes de rodar o instalador:
 
 ```bash
-GETFY_HTTP_PORT=8080 GETFY_DIR=/opt/getfy bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/install.sh)"
+GETFY_HTTP_PORT=8080 GETFY_DIR=/opt/getfy bash -c "$(curl -fsSL https://raw.githubusercontent.com/impa365/getfy/main/install.sh)"
 ```
 
 ---
@@ -163,7 +189,7 @@ Se o seu painel não suportar `docker-compose.yml`, a alternativa mais simples �
 ## Para atualizar:
 VPS:
 1. Conecte via SSH.
-3. Execute: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/getfy-opensource/getfy/main/update.sh)"`.
+3. Execute: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/impa365/getfy/main/update.sh)"`.
 
 Hospedagem compartilhada:
 1. Baixe o zip update vX.X.X do repositório.

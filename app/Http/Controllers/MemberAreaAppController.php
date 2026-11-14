@@ -22,9 +22,11 @@ use App\Models\User;
 use App\Services\GamificationService;
 use App\Services\MemberAreaResolver;
 use App\Services\MemberCommentService;
+use App\Services\MemberLessonMediaStreamer;
 use App\Services\MemberProgressService;
 use App\Services\StorageService;
 use App\Services\UserProductAccessService;
+use App\Support\MemberLessonMediaUrl;
 use App\Support\MemberLessonPdfContentResolver;
 use App\Plugins\PluginHookBus;
 use Illuminate\Http\JsonResponse;
@@ -240,9 +242,9 @@ class MemberAreaAppController extends Controller
                 'id' => $currentLesson->id,
                 'title' => $currentLesson->title,
                 'type' => $currentLesson->type,
-                'content_url' => $currentLesson->content_url,
-                'content_files' => $currentLesson->content_files,
-                'support_files' => $currentLesson->support_files,
+                'content_url' => $this->maskedContentUrl($request, $product, $currentLesson),
+                'content_files' => $this->maskedContentFiles($request, $product, $currentLesson),
+                'support_files' => $this->maskedSupportFiles($request, $product, $currentLesson),
                 'useful_links' => $currentLesson->useful_links,
                 'link_title' => $currentLesson->link_title,
                 'content_text' => \App\Support\HtmlSanitizer::sanitize($currentLesson->content_text),
@@ -408,9 +410,9 @@ class MemberAreaAppController extends Controller
             'id' => $lesson->id,
             'title' => $lesson->title,
             'type' => $lesson->type,
-            'content_url' => $lesson->content_url,
-            'content_files' => $lesson->content_files,
-            'support_files' => $lesson->support_files,
+            'content_url' => $this->maskedContentUrl($request, $product, $lesson),
+            'content_files' => $this->maskedContentFiles($request, $product, $lesson),
+            'support_files' => $this->maskedSupportFiles($request, $product, $lesson),
             'useful_links' => $lesson->useful_links,
             'link_title' => $lesson->link_title,
             'content_text' => \App\Support\HtmlSanitizer::sanitize($lesson->content_text),
@@ -491,6 +493,100 @@ class MemberAreaAppController extends Controller
             'Cache-Control' => 'private, max-age=120',
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    /**
+     * GET — serve a mídia (vídeo/áudio) da aula sem expor a URL real do storage.
+     * Suporta HTTP Range para streaming/seek.
+     */
+    public function lessonMedia(Request $request, string $slug, MemberLesson $lesson): SymfonyResponse
+    {
+        $this->assertLessonViewableForPdf($request, $lesson);
+        if ($lesson->type !== MemberLesson::TYPE_VIDEO || ! $lesson->content_url) {
+            abort(404);
+        }
+        $product = $this->getProduct($request);
+        $this->progressService->ensureLessonStarted($lesson, $request->user());
+
+        $streamer = new MemberLessonMediaStreamer(new StorageService($product->tenant_id));
+
+        return $streamer->respond($request, (string) $lesson->content_url);
+    }
+
+    /**
+     * GET — serve um arquivo da aula (content/support) por proxy autenticado,
+     * a partir de uma referência interna indexada — nunca da URL crua do storage.
+     */
+    public function lessonFile(Request $request, string $slug, MemberLesson $lesson, string $kind, int $fileIndex): SymfonyResponse
+    {
+        $this->assertLessonViewableForPdf($request, $lesson);
+        $product = $this->getProduct($request);
+
+        $list = $kind === 'support' ? $lesson->support_files : $lesson->content_files;
+        $url = $this->fileUrlAt($list, $fileIndex);
+        if ($url === null) {
+            abort(404);
+        }
+
+        $this->progressService->ensureLessonStarted($lesson, $request->user());
+
+        // Mídia grande (vídeo/áudio): stream com Range, sem carregar na memória.
+        if (MemberLessonMediaUrl::isMaskableMediaUrl($url)) {
+            $streamer = new MemberLessonMediaStreamer(new StorageService($product->tenant_id));
+
+            return $streamer->respond($request, $url);
+        }
+
+        $resolver = new MemberLessonPdfContentResolver(new StorageService($product->tenant_id));
+        $file = $resolver->fetch($url);
+
+        return response($file['body'], 200, [
+            'Content-Type' => $this->mimeForFileName($file['filename']),
+            'Content-Disposition' => 'inline; filename="'.addslashes($file['filename']).'"',
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * Extrai a URL do arquivo de índice `$index` de uma lista de arquivos da aula
+     * (índice bruto do array, igual ao usado no mascaramento).
+     */
+    private function fileUrlAt(mixed $list, int $index): ?string
+    {
+        if (! is_array($list)) {
+            return null;
+        }
+        $it = array_values($list)[$index] ?? null;
+        if (is_string($it)) {
+            $url = trim($it);
+
+            return $url !== '' ? $url : null;
+        }
+        if (is_array($it)) {
+            $url = trim((string) ($it['url'] ?? ''));
+
+            return $url !== '' ? $url : null;
+        }
+
+        return null;
+    }
+
+    private function mimeForFileName(string $name): string
+    {
+        return match (strtolower(pathinfo($name, PATHINFO_EXTENSION))) {
+            'pdf' => 'application/pdf',
+            'zip' => 'application/zip',
+            'png' => 'image/png',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            'svg' => 'image/svg+xml',
+            'mp3' => 'audio/mpeg',
+            'mp4' => 'video/mp4',
+            'txt' => 'text/plain; charset=UTF-8',
+            default => 'application/octet-stream',
+        };
     }
 
     /**
@@ -2341,6 +2437,109 @@ class MemberAreaAppController extends Controller
         if (($lessonLock['is_locked'] ?? false) === true) {
             abort(403, $lessonLock['lock_message'] ?? 'Aula ainda não liberada.');
         }
+    }
+
+    /**
+     * URL de mídia que o cliente deve receber: se for vídeo/áudio hospedado,
+     * devolve o endereço interno de proxy (sem expor S3/rclone/Drive).
+     */
+    private function maskedContentUrl(Request $request, Product $product, MemberLesson $lesson): ?string
+    {
+        $url = $lesson->content_url;
+        if (! is_string($url) || trim($url) === '') {
+            return $url;
+        }
+
+        // Embeds de terceiros (YouTube, Vimeo, Drive...) o player consome direto.
+        if (MemberLessonMediaUrl::isEmbedProviderUrl($url)) {
+            return $url;
+        }
+
+        // Vídeo/áudio hospedado (S3/rclone/Drive direto): mascara SEMPRE.
+        if ($lesson->type === MemberLesson::TYPE_VIDEO || MemberLessonMediaUrl::isMaskableMediaUrl($url)) {
+            return MemberLessonMediaUrl::streamUrl($request, $product, $lesson);
+        }
+
+        return $url;
+    }
+
+    /**
+     * content_files sem URLs cruas: arquivos servidos por proxy interno indexado.
+     *
+     * @return array<int, mixed>|null
+     */
+    private function maskedContentFiles(Request $request, Product $product, MemberLesson $lesson): ?array
+    {
+        return $this->maskFileList($request, $product, $lesson, $lesson->content_files, 'content');
+    }
+
+    /**
+     * support_files sem URLs cruas: arquivos servidos por proxy interno indexado.
+     *
+     * @return array<int, mixed>|null
+     */
+    private function maskedSupportFiles(Request $request, Product $product, MemberLesson $lesson): ?array
+    {
+        return $this->maskFileList($request, $product, $lesson, $lesson->support_files, 'support');
+    }
+
+    /**
+     * @return array<int, mixed>|null
+     */
+    private function maskFileList(Request $request, Product $product, MemberLesson $lesson, mixed $list, string $kind): ?array
+    {
+        if (! is_array($list)) {
+            return is_array($list) ? $list : null;
+        }
+
+        $out = [];
+        foreach (array_values($list) as $index => $it) {
+            $url = '';
+            $started = false;
+
+            if (is_string($it)) {
+                $url = trim($it);
+                $started = true;
+            } elseif (is_array($it)) {
+                $url = trim((string) ($it['url'] ?? ''));
+                $started = true;
+            }
+
+            if (! $started || $url === '') {
+                $out[] = $it;
+                continue;
+            }
+
+            // Imagens (capas/galerias) seguem pela origem: não são o alvo do vazamento
+            // e podem ser usadas como <img> direto. O índice continua sendo a posição
+            // bruta do array, para casar com lessonFile().
+            if ($this->isInlineImageUrl($url)) {
+                $out[] = $it;
+                continue;
+            }
+
+            $proxy = MemberLessonMediaUrl::innerUrl(
+                $request,
+                $product,
+                'aula/'.$lesson->id.'/file/'.$kind.'/'.$index
+            );
+
+            if (is_string($it)) {
+                $out[] = $proxy;
+            } else {
+                $it['url'] = $proxy;
+                $out[] = $it;
+            }
+        }
+
+        return $out;
+    }
+
+    private function isInlineImageUrl(string $url): bool
+    {
+        $ext = strtolower(pathinfo((string) parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));
+
+        return in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'], true);
     }
 
     /**

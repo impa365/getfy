@@ -4,7 +4,6 @@ namespace Aws\Signature;
 use Aws\Credentials\CredentialsInterface;
 use AWS\CRT\Auth\Signable;
 use AWS\CRT\Auth\SignatureType;
-use AWS\CRT\Auth\SignedBodyHeaderType;
 use AWS\CRT\Auth\Signing;
 use AWS\CRT\Auth\SigningAlgorithm;
 use AWS\CRT\Auth\SigningConfigAWS;
@@ -49,7 +48,6 @@ class SignatureV4 implements SignatureInterface
     {
         return [
             'cache-control'         => true,
-            'content-type'          => true,
             'content-length'        => true,
             'expect'                => true,
             'max-forwards'          => true,
@@ -67,12 +65,30 @@ class SignatureV4 implements SignatureInterface
             'from'                  => true,
             'referer'               => true,
             'user-agent'            => true,
-            'X-Amz-User-Agent'      => true,
             'x-amzn-trace-id'       => true,
-            'aws-sdk-invocation-id' => true,
-            'aws-sdk-retry'         => true,
+            'amz-sdk-invocation-id' => true,
+            'amz-sdk-request'       => true,
         ];
     }
+
+    /**
+     * Headers that must be excluded from presigned URLs (in addition to
+     * the regular header blacklist). These headers are excluded because the
+     * consumer of the presigned URL cannot reliably reproduce them at the
+     * time the URL is used:
+     *  - content-type: caller-determined at upload time
+     *  - x-amz-user-agent: specific to the SDK that generated the URL
+     *
+     * @return array
+     */
+    protected function getPresignHeaderDenyList()
+    {
+        return [
+            'content-type'      => true,
+            'x-amz-user-agent'  => true,
+        ];
+    }
+
 
     /**
      * @param string $service Service name to use when signing
@@ -155,6 +171,9 @@ class SignatureV4 implements SignatureInterface
                 $presignHeaders[] = $lName;
             }
         }
+
+        sort($presignHeaders);
+
         return $presignHeaders;
     }
 
@@ -353,7 +372,7 @@ class SignatureV4 implements SignatureInterface
             if (!is_array($v)) {
                 $qs .= rawurlencode($k) . '=' . rawurlencode($v !== null ? $v : '') . '&';
             } else {
-                sort($v);
+                sort($v, SORT_STRING);
                 foreach ($v as $value) {
                     $qs .= rawurlencode($k) . '=' . rawurlencode($value !== null ? $value : '') . '&';
                 }
@@ -368,14 +387,58 @@ class SignatureV4 implements SignatureInterface
         if ($dateValue instanceof \DateTimeInterface) {
             $timestamp = $dateValue->getTimestamp();
         } elseif (!is_numeric($dateValue)) {
-            $timestamp = strtotime($dateValue,
-                $relativeTimeBase === null ? time() : $relativeTimeBase
-            );
+            $relativeTimeBase = $relativeTimeBase === null ? time() : $relativeTimeBase;
+            $timestamp = $this->addElapsedTime($dateValue, $relativeTimeBase)
+                ?? strtotime($dateValue, $relativeTimeBase);
         } else {
             $timestamp = $dateValue;
         }
 
         return $timestamp;
+    }
+
+    /**
+     * Adds a relative time of only hours, minutes, seconds and smaller units
+     * (for example "+15 minutes") as elapsed time, in UTC.
+     *
+     * strtotime() adds these units as wall-clock time in the default
+     * timezone. When the result falls into the repeated hour of a daylight
+     * saving time change, it is one hour too late, so a "+15 minutes"
+     * presigned URL gets X-Amz-Expires=4500.
+     *
+     * Returns null for all other values, which keep the strtotime() result.
+     */
+    private function addElapsedTime(string $dateValue, int $relativeTimeBase): ?int
+    {
+        $parsed = date_parse($dateValue);
+        if ($parsed['error_count'] > 0
+            || $parsed['warning_count'] > 0
+            || !isset($parsed['relative'])
+            || isset($parsed['zone_type'])
+        ) {
+            return null;
+        }
+
+        foreach (['year', 'month', 'day', 'hour', 'minute', 'second'] as $field) {
+            if ($parsed[$field] !== false) {
+                return null;
+            }
+        }
+
+        $relative = $parsed['relative'];
+        $timeOnly = ['year', 'month', 'day', 'hour', 'minute', 'second', 'microsecond'];
+        if ($relative['year'] !== 0
+            || $relative['month'] !== 0
+            || $relative['day'] !== 0
+            || array_diff(array_keys($relative), $timeOnly) !== []
+        ) {
+            return null;
+        }
+
+        // A "@timestamp" date is in UTC, which has no daylight saving time.
+        return (new \DateTimeImmutable('@' . $relativeTimeBase))
+            ->modify($dateValue)
+            ->getTimestamp();
     }
 
     private function convertExpires($expiresTimestamp, $startTimestamp)
@@ -394,15 +457,16 @@ class SignatureV4 implements SignatureInterface
 
     private function moveHeadersToQuery(array $parsedRequest)
     {
-        //x-amz-user-agent shouldn't be put in a query param
-        unset($parsedRequest['headers']['X-Amz-User-Agent']);
+        $presignDenyList = $this->getPresignHeaderDenyList();
+        $blacklist = $this->getHeaderBlacklist() + $presignDenyList;
 
         foreach ($parsedRequest['headers'] as $name => $header) {
             $lname = strtolower($name);
-            if (substr($lname, 0, 5) == 'x-amz') {
+            // Move x-amz-* headers into the query string, but skip those that
+            // must not appear in presigned URLs (e.g. x-amz-user-agent).
+            if (substr($lname, 0, 5) == 'x-amz' && !isset($presignDenyList[$lname])) {
                 $parsedRequest['query'][$name] = $header;
             }
-            $blacklist = $this->getHeaderBlacklist();
             if (isset($blacklist[$lname])
                 || $lname === strtolower(self::AMZ_CONTENT_SHA256_HEADER)
             ) {
@@ -412,6 +476,7 @@ class SignatureV4 implements SignatureInterface
 
         return $parsedRequest;
     }
+
 
     private function parseRequest(RequestInterface $request)
     {
@@ -423,9 +488,13 @@ class SignatureV4 implements SignatureInterface
             ->withoutHeader('Authorization');
         $uri = $request->getUri();
 
+        $path = method_exists(Psr7\Uri::class, 'rawPath')
+            ? Psr7\Uri::rawPath($uri)
+            : $uri->getPath();
+
         return [
             'method'  => $request->getMethod(),
-            'path'    => $uri->getPath(),
+            'path'    => $path,
             'query'   => Psr7\Query::parse($uri->getQuery()),
             'uri'     => $uri,
             'headers' => $request->getHeaders(),
@@ -473,10 +542,10 @@ class SignatureV4 implements SignatureInterface
     {
         static $illegalV4aHeaders = [
             self::AMZ_CONTENT_SHA256_HEADER,
-            'aws-sdk-invocation-id',
-            'aws-sdk-retry',
+            'amz-sdk-invocation-id',
+            'amz-sdk-request',
             'x-amz-region-set',
-            'transfer-encoding'
+            'transfer-encoding',
         ];
         $storedHeaders = [];
 
@@ -566,13 +635,15 @@ class SignatureV4 implements SignatureInterface
         ]);
 
         $this->removeIllegalV4aHeaders($request);
-        foreach ($this->getHeaderBlacklist() as $headerName => $headerValue) {
+        $denyList = $this->getHeaderBlacklist() + $this->getPresignHeaderDenyList();
+        foreach ($denyList as $headerName => $headerValue) {
             if ($request->hasHeader($headerName)) {
                 $request = $request->withoutHeader($headerName);
             }
         }
 
         $http_request = $this->CRTRequestFromGuzzleRequest($request);
+
         Signing::signRequestAws(
             Signable::fromHttpRequest($http_request),
             $signingConfig, function ($signing_result, $error_code) use (&$http_request) {

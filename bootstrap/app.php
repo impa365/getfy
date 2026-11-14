@@ -36,8 +36,8 @@ return Application::configure(basePath: dirname(__DIR__))
             headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_PREFIX | Request::HEADER_X_FORWARDED_AWS_ELB
         );
 
-        // Redirect de convidados para /login (evita RouteNotFoundException quando route('login') não está disponível, ex.: cache de rotas)
-        $middleware->redirectGuestsTo(fn () => url('/login'));
+        // Redirect de convidados para /login (path relativo — evita host/scheme errado atrás do Traefik)
+        $middleware->redirectGuestsTo('/login');
 
         // Webhooks recebem POST de gateways externos sem CSRF token
         $middleware->validateCsrfTokens(except: [
@@ -131,22 +131,33 @@ return Application::configure(basePath: dirname(__DIR__))
         // Fallback: se der erro por tabela/view inexistente e APP_AUTO_MIGRATE=true, roda migrate e redireciona para tentar de novo
         $exceptions->render(function (\Throwable $e, Request $request) {
             if (! $request->expectsJson() && filter_var(config('getfy.auto_migrate', false), FILTER_VALIDATE_BOOLEAN)) {
+                // Evita ERR_TOO_MANY_REDIRECTS se a migrate não resolver a causa
+                if ($request->query('_getfy_migrated') === '1') {
+                    return null;
+                }
+
                 $message = $e->getMessage();
-                $isTableMissing = $e instanceof QueryException
-                    || str_contains($message, '42S02')
-                    || str_contains($message, 'Base table or view not found')
-                    || str_contains($message, "doesn't exist");
+                // Só tabela/relação ausente — NÃO qualquer QueryException
+                // (ex.: Postgres 42883 tipo incompatível gerava loop _getfy_migrated).
+                $isMissingTable = static function (string $msg): bool {
+                    return str_contains($msg, '42S02')
+                        || str_contains($msg, '42P01')
+                        || str_contains($msg, 'Base table or view not found')
+                        || str_contains($msg, 'Undefined table')
+                        || (str_contains($msg, 'relation') && str_contains($msg, 'does not exist'))
+                        || (bool) preg_match("/(?:table|relation)\\s+['\"]?\\w+['\"]?\\s+does(?:n't| not) exist/i", $msg);
+                };
+                $isTableMissing = $isMissingTable($message);
                 $previous = $e->getPrevious();
                 if (! $isTableMissing && $previous instanceof \Throwable) {
-                    $message = $previous->getMessage();
-                    $isTableMissing = str_contains($message, '42S02')
-                        || str_contains($message, 'Base table or view not found')
-                        || str_contains($message, "doesn't exist");
+                    $isTableMissing = $isMissingTable($previous->getMessage());
                 }
                 if ($isTableMissing) {
                     try {
                         Artisan::call('migrate', ['--force' => true]);
                         $url = $request->fullUrl();
+                        $sep = str_contains($url, '?') ? '&' : '?';
+                        $url .= $sep.'_getfy_migrated=1';
                         if ($request->header('X-Inertia')) {
                             return redirect()->to($url)->with('success', 'Migrações executadas automaticamente. Página recarregada.');
                         }

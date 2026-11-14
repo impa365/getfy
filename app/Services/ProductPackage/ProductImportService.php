@@ -258,7 +258,8 @@ class ProductImportService
                 'name' => $offerData['name'] ?? 'Oferta',
                 'price' => (float) ($offerData['price'] ?? 0),
                 'currency' => $offerData['currency'] ?? $product->currency,
-                'checkout_slug' => ! empty($offerData['checkout_slug']) ? ProductOffer::generateUniqueCheckoutSlug() : null,
+                // product_offers.checkout_slug is NOT NULL: exports from older versions may carry null here.
+                'checkout_slug' => ProductOffer::generateUniqueCheckoutSlug(),
                 'checkout_config' => is_array($cfg) ? $cfg : [],
                 'position' => (int) ($offerData['position'] ?? 0),
                 'combo_product_ids' => [],

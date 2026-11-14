@@ -55,6 +55,55 @@ class SafeRemoteUrl
     }
 
     /**
+     * Valida uma URL HTTPS pública para proxy de mídia (vídeo/áudio) do aluno.
+     *
+     * Diferente de isAllowedHttpUrl(), NÃO exige allowlist de hosts porque a URL
+     * vem do próprio cadastro da aula (campo content_url do infoprodutor), já
+     * autenticado. Mas continua bloqueando SSRF: IPs privados/reservados e hosts
+     * internos (localhost, metadata).
+     */
+    public static function isSafePublicStreamUrl(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '' || ! preg_match('#^https?://#i', $url)) {
+            return false;
+        }
+
+        $parts = parse_url($url);
+        if (! is_array($parts)) {
+            return false;
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if (! in_array($scheme, ['http', 'https'], true)) {
+            return false;
+        }
+
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        if ($host === '') {
+            return false;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return self::isAllowedIp($host);
+        }
+
+        foreach (self::blockedHostnames() as $blocked) {
+            if ($host === $blocked || str_ends_with($host, '.'.$blocked)) {
+                return false;
+            }
+        }
+
+        // Host interno do Docker (ex.: rclone-http, *.internal) não é acessível
+        // de forma alguma pelo cliente final; nunca proxear para nomes sem ponto.
+        if (! str_contains($host, '.')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * @return list<string>
      */
     private static function allowedHosts(): array

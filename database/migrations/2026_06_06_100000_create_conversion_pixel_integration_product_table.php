@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::create('conversion_pixel_integration_product', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('conversion_pixel_integration_id');
-            $table->uuid('product_id');
+            $table->string('product_id', 36);
             $table->timestamps();
 
             $table->foreign('conversion_pixel_integration_id', 'conv_pix_int_fk')

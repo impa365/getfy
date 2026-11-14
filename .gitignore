@@ -31,3 +31,8 @@ Thumbs.db
 /Docs Gateways
 docs
 Docs Gateways
+
+# Getfy IMPA: never commit runtime secrets or compiled caches
+/.docker/
+/storage/framework/views/*.php
+
