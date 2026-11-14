@@ -41,6 +41,11 @@ const totalLabel = computed(() => {
     return formatCompactCurrency(total);
 });
 
+const tooltip = computed(() => {
+    const total = Number(progress.value?.total_valid_sales ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return `Conquistas: ${total} em vendas confirmadas pelo gateway de pagamento. Vendas aprovadas manualmente não contam aqui; o faturamento completo fica em Vendas.`;
+});
+
 const panelNavPrefetch = ['hover', 'click'];
 </script>
 
@@ -54,7 +59,7 @@ const panelNavPrefetch = ['hover', 'click'];
             'flex-col items-stretch gap-2 !rounded-2xl !px-4 !py-3': props.variant === 'sidebar',
             'w-full !rounded-2xl px-4 py-3': props.variant === 'dashboard',
         }"
-        title="Conquistas"
+        :title="tooltip"
     >
         <div
             class="flex shrink-0 items-center justify-center overflow-hidden rounded-full"
@@ -85,7 +90,7 @@ const panelNavPrefetch = ['hover', 'click'];
                 v-if="props.variant === 'header' || props.variant === 'dashboard'"
                 class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400"
             >
-                FATURAMENTO
+                CONQUISTAS
             </p>
             <div
                 class="w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"

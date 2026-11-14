@@ -57,7 +57,8 @@ function saveUsername() {
                 Conquistas
             </h1>
             <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Sua evolução baseada em vendas processadas por gateways de pagamento.
+                Sua evolução baseada em vendas processadas por gateways de pagamento. Vendas aprovadas manualmente não contam
+                aqui; o faturamento completo fica em Vendas.
             </p>
         </div>
 
