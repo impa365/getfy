@@ -259,7 +259,18 @@ const props = defineProps({
     plugin_product_panels: { type: Array, default: () => [] },
     plugin_form_sections: { type: Array, default: () => [] },
     tenant_currencies: { type: Array, default: () => [] },
+    categorias: { type: Array, default: () => [] },
 });
+
+const categoriasUsuario = computed(() => props.categorias.filter((c) => !c.system));
+const categoriasSistema = computed(() => (props.produto.categories ?? []).filter((c) => c.system));
+
+function toggleCategoria(id) {
+    const ids = form.category_ids;
+    const i = ids.indexOf(id);
+    if (i === -1) ids.push(id);
+    else ids.splice(i, 1);
+}
 
 const pluginTabs = computed(() => {
     const panels = Array.isArray(props.plugin_product_panels) ? props.plugin_product_panels : [];
@@ -470,6 +481,8 @@ const form = useForm({
     base_interval: props.produto.base_interval ?? (props.produto.subscription_plans?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0]?.interval) ?? 'monthly',
     currency: props.produto.currency ?? 'BRL',
     is_active: props.produto.is_active,
+    category_ids: (props.produto.categories ?? []).filter((c) => !c.system).map((c) => c.id),
+    category_ids_present: true,
     image: null,
     deliverable_link: props.produto.checkout_config?.deliverable_link ?? '',
     payment_gateways: (() => {
@@ -1506,6 +1519,8 @@ function submit() {
         }
         fd.append('currency', form.currency);
         fd.append('is_active', form.is_active ? '1' : '0');
+        fd.append('category_ids_present', '1');
+        (form.category_ids || []).forEach((id) => fd.append('category_ids[]', id));
         // Envia texto simples; o backend monta o HTML bonito automaticamente.
         const cre = form.cart_recovery_email && typeof form.cart_recovery_email === 'object' ? form.cart_recovery_email : {};
         const creStages = cre?.stages && typeof cre.stages === 'object' ? cre.stages : {};
@@ -1778,6 +1793,44 @@ function submit() {
                                         placeholder="Breve descrição do produto..."
                                         :class="inputClass"
                                     />
+                                </div>
+                                <div>
+                                    <div class="mb-1.5 flex items-center justify-between">
+                                        <span class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Categorias</span>
+                                        <Link href="/produtos/categorias" class="text-xs text-zinc-500 hover:text-[var(--color-primary)] dark:text-zinc-400">
+                                            {{ categoriasUsuario.length ? 'Gerenciar' : 'Criar categorias' }}
+                                        </Link>
+                                    </div>
+                                    <div v-if="categoriasUsuario.length || categoriasSistema.length" class="flex flex-wrap gap-2">
+                                        <span
+                                            v-for="c in categoriasSistema"
+                                            :key="`sys-${c.id}`"
+                                            class="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+                                            title="Definida automaticamente por um plugin"
+                                        >
+                                            <span class="h-2 w-2 rounded-full" :style="{ backgroundColor: c.color || '#a1a1aa' }" aria-hidden="true" />
+                                            {{ c.name }}
+                                        </span>
+                                        <button
+                                            v-for="c in categoriasUsuario"
+                                            :key="`cat-${c.id}`"
+                                            type="button"
+                                            :aria-pressed="form.category_ids.includes(c.id)"
+                                            :class="[
+                                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition',
+                                                form.category_ids.includes(c.id)
+                                                    ? 'border-transparent bg-[var(--color-primary)] text-white'
+                                                    : 'border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:text-zinc-300',
+                                            ]"
+                                            @click="toggleCategoria(c.id)"
+                                        >
+                                            <span class="h-2 w-2 rounded-full" :style="{ backgroundColor: c.color || '#a1a1aa' }" aria-hidden="true" />
+                                            {{ c.name }}
+                                        </button>
+                                    </div>
+                                    <p v-else class="text-xs text-zinc-500 dark:text-zinc-400">
+                                        Nenhuma categoria criada. Use categorias para organizar e filtrar seus produtos.
+                                    </p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-4 pt-1">
                                     <Toggle v-model="form.is_active" label="Produto ativo" />

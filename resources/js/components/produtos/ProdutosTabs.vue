@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
-import { Package, TicketPercent, Users, Handshake, UserPlus } from 'lucide-vue-next';
+import { Package, Tags, TicketPercent, Users, Handshake, UserPlus } from 'lucide-vue-next';
 import BetaBadge from '@/components/ui/BetaBadge.vue';
 import HorizontalScrollTabs from '@/components/ui/HorizontalScrollTabs.vue';
 
@@ -10,6 +10,7 @@ const isProdutos = computed(() => {
     const url = page.url;
     return url === '/produtos' || url.startsWith('/produtos?') || url.match(/^\/produtos\/\d+/);
 });
+const isCategorias = computed(() => page.url.startsWith('/produtos/categorias'));
 const isCupons = computed(() => page.url.startsWith('/produtos/cupons'));
 const isAlunos = computed(() => page.url.startsWith('/produtos/alunos'));
 const isCoprodutores = computed(() => page.url.startsWith('/produtos/co-produtores'));
@@ -29,6 +30,18 @@ const isAfiliadosProgramas = computed(() => page.url.startsWith('/produtos/afili
         >
             <Package class="h-4 w-4 shrink-0" aria-hidden="true" />
             Produtos
+        </Link>
+        <Link
+            href="/produtos/categorias"
+            :class="[
+                'flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                isCategorias
+                    ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
+                    : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
+            ]"
+        >
+            <Tags class="h-4 w-4 shrink-0" aria-hidden="true" />
+            Categorias
         </Link>
         <Link
             href="/produtos/cupons"

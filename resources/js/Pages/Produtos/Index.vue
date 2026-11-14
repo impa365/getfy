@@ -28,9 +28,31 @@ const props = defineProps({
     exchange_rates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     plugin_card_actions: { type: [Object, Array], default: () => [] },
     plugin_form_sections: { type: Array, default: () => [] },
+    categorias: { type: Array, default: () => [] },
+    categoria_filtro: { type: Object, default: () => ({ atual: '', total: 0, sem_categoria: 0 }) },
 });
 
 const produtosList = computed(() => props.produtos?.data ?? (Array.isArray(props.produtos) ? props.produtos : []));
+
+const filtroCategorias = computed(() => {
+    const f = props.categoria_filtro ?? {};
+    const chips = [{ key: '', label: 'Todos', count: f.total ?? 0 }];
+    for (const c of props.categorias) {
+        chips.push({ key: String(c.id), label: c.name, count: c.products_count, color: c.color });
+    }
+    if (props.categorias.length && (f.sem_categoria ?? 0) > 0) {
+        chips.push({ key: 'sem', label: 'Sem categoria', count: f.sem_categoria });
+    }
+    return chips;
+});
+
+function filtrarCategoria(key) {
+    router.get('/produtos', key ? { categoria: key } : {}, { preserveState: true, preserveScroll: true });
+}
+
+function badgeStyle(color) {
+    return color ? { backgroundColor: `${color}26`, color } : {};
+}
 
 const sidebarOpen = ref(false);
 const openMenuId = ref(null);
@@ -132,6 +154,28 @@ function pluginActions(productId) {
         </div>
         <PluginRenderZone zone="produtos.index.after_toolbar" />
 
+        <div v-if="categorias.length" class="flex flex-wrap items-center gap-2" aria-label="Filtrar por categoria">
+            <button
+                v-for="chip in filtroCategorias"
+                :key="chip.key || 'todos'"
+                type="button"
+                :class="[
+                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
+                    (categoria_filtro?.atual ?? '') === chip.key
+                        ? 'border-transparent bg-[var(--color-primary)] text-white'
+                        : 'border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-white',
+                ]"
+                @click="filtrarCategoria(chip.key)"
+            >
+                <span v-if="chip.color" class="h-2 w-2 rounded-full" :style="{ backgroundColor: chip.color }" aria-hidden="true" />
+                {{ chip.label }}
+                <span class="text-xs opacity-70">{{ chip.count }}</span>
+            </button>
+            <Link href="/produtos/categorias" class="ml-1 text-xs text-zinc-500 hover:text-[var(--color-primary)] dark:text-zinc-400">
+                Gerenciar categorias
+            </Link>
+        </div>
+
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div
                 v-for="p in produtosList"
@@ -184,6 +228,15 @@ function pluginActions(productId) {
                                     ]"
                                 >
                                     {{ p.is_active ? 'Ativo' : 'Inativo' }}
+                                </span>
+                                <span
+                                    v-for="c in p.categories ?? []"
+                                    :key="`cat-${p.id}-${c.id}`"
+                                    class="inline-block max-w-[9rem] truncate rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                                    :style="badgeStyle(c.color)"
+                                    :title="c.name"
+                                >
+                                    {{ c.name }}
                                 </span>
                             </div>
                         </div>
@@ -303,10 +356,18 @@ function pluginActions(productId) {
             class="panel-card-dashed flex flex-col items-center justify-center py-16"
         >
             <Package class="h-14 w-14 text-zinc-400 dark:text-zinc-500" />
-            <p class="mt-3 text-zinc-600 dark:text-zinc-400">Nenhum produto ainda.</p>
-            <Button class="mt-4" @click="openSidebar">
-                Criar primeiro produto
-            </Button>
+            <template v-if="categoria_filtro?.atual">
+                <p class="mt-3 text-zinc-600 dark:text-zinc-400">Nenhum produto nesta categoria.</p>
+                <Button class="mt-4" variant="outline" @click="filtrarCategoria('')">
+                    Ver todos os produtos
+                </Button>
+            </template>
+            <template v-else>
+                <p class="mt-3 text-zinc-600 dark:text-zinc-400">Nenhum produto ainda.</p>
+                <Button class="mt-4" @click="openSidebar">
+                    Criar primeiro produto
+                </Button>
+            </template>
         </div>
     </div>
 

@@ -766,6 +766,14 @@ class Product extends Model
         return $this->belongsToMany(User::class, 'product_user')->withTimestamps();
     }
 
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(ProductCategory::class, 'category_product', 'product_id', 'product_category_id')
+            ->withTimestamps()
+            ->orderBy('product_categories.position')
+            ->orderBy('product_categories.name');
+    }
+
     public function scopeForTenant($query, ?int $tenantId)
     {
         if ($tenantId === null) {

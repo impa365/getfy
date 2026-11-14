@@ -487,6 +487,10 @@ Route::middleware(['auth', 'admin.tenant', 'role:admin|infoprodutor|team', 'audi
         Route::delete('/produtos/{produto}/subscription-plans/{plan}', [\App\Http\Controllers\ProdutosController::class, 'destroySubscriptionPlan'])->name('produtos.subscription-plans.destroy');
         Route::put('/produtos/{produto}/external-member-area', [\App\Http\Controllers\ProdutosController::class, 'updateExternalMemberArea'])->name('produtos.external-member-area.update');
         Route::put('/produtos/{produto}/member-area-refund', [\App\Http\Controllers\ProdutosController::class, 'updateMemberAreaRefund'])->name('produtos.member-area-refund.update');
+        Route::get('/produtos/categorias', [\App\Http\Controllers\ProductCategoriesController::class, 'index'])->name('produtos.categorias.index');
+        Route::post('/produtos/categorias', [\App\Http\Controllers\ProductCategoriesController::class, 'store'])->name('produtos.categorias.store');
+        Route::put('/produtos/categorias/{categoria}', [\App\Http\Controllers\ProductCategoriesController::class, 'update'])->name('produtos.categorias.update');
+        Route::delete('/produtos/categorias/{categoria}', [\App\Http\Controllers\ProductCategoriesController::class, 'destroy'])->name('produtos.categorias.destroy');
         Route::get('/produtos/cupons', [\App\Http\Controllers\CuponsController::class, 'index'])->name('cupons.index');
         Route::post('/produtos/cupons', [\App\Http\Controllers\CuponsController::class, 'store'])->name('cupons.store');
         Route::put('/produtos/cupons/{coupon}', [\App\Http\Controllers\CuponsController::class, 'update'])->name('cupons.update');

@@ -13,6 +13,7 @@ use App\Gateways\GatewayRegistry;
 use App\Models\CademiIntegration;
 use App\Models\GatewayCredential;
 use App\Models\Product;
+use App\Models\ProductCategory;
 use App\Models\ProductOffer;
 use App\Models\ProductOrderBump;
 use App\Models\Setting;
@@ -23,6 +24,7 @@ use App\Plugins\PluginHookBus;
 use App\Plugins\PluginProductTypeRegistry;
 use App\Plugins\PluginRegistry;
 use App\Services\CajuPayPixParceladoService;
+use App\Services\ProductCategoryService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\MoneyMinorUnits;
@@ -55,10 +57,24 @@ class ProdutosController extends Controller
     {
         $tenantId = auth()->user()->tenant_id;
         $tenantCurrencies = $this->tenantCurrenciesFor($tenantId);
-        $query = Product::forTenant($tenantId)->orderBy('name');
+        $base = Product::forTenant($tenantId);
+        $visibleIds = null;
         if (auth()->user()->isTeam()) {
             $allowed = app(TeamAccessService::class)->allowedProductIdsFor(auth()->user());
-            $query->whereIn('id', $allowed ?: ['__none__']);
+            $base->whereIn('id', $allowed ?: ['__none__']);
+            $visibleIds = $allowed;
+        }
+        $totalVisible = (clone $base)->count();
+        $uncategorized = (clone $base)->whereDoesntHave('categories')->count();
+        $query = (clone $base)->orderBy('name')->with('categories');
+
+        $categoria = (string) $request->query('categoria', '');
+        if ($categoria === 'sem') {
+            $query->whereDoesntHave('categories');
+        } elseif (ctype_digit($categoria)) {
+            $query->whereHas('categories', fn ($q) => $q->where('product_categories.id', (int) $categoria));
+        } else {
+            $categoria = '';
         }
         $products = $query->paginate(20)->withQueryString()->through(fn (Product $p) => $this->productToArray($p, $tenantCurrencies));
 
@@ -74,6 +90,8 @@ class ProdutosController extends Controller
 
         $data = new \ArrayObject([
             'produtos' => $products,
+            'categorias' => app(ProductCategoryService::class)->listWithCounts($tenantId, $visibleIds),
+            'categoria_filtro' => ['atual' => $categoria, 'total' => $totalVisible, 'sem_categoria' => $uncategorized],
             'productTypes' => $productTypes,
             'billingTypes' => $billingTypes,
             'exchange_rates' => $this->legacyExchangeRatesMap($tenantCurrencies),
@@ -411,6 +429,7 @@ class ProdutosController extends Controller
 
         return Inertia::render('Produtos/Edit', [
             'produto' => $produtoArray,
+            'categorias' => app(ProductCategoryService::class)->listWithCounts($produto->tenant_id),
             'productTypes' => $productTypes,
             'billingTypes' => $billingTypes,
             'exchange_rates' => $this->legacyExchangeRatesMap($tenantCurrencies),
@@ -1067,6 +1086,11 @@ class ProdutosController extends Controller
             $produto->update(['image' => $path]);
         }
 
+        if ($request->has('category_ids') || $request->boolean('category_ids_present')) {
+            $categoryIds = $request->input('category_ids', []);
+            app(ProductCategoryService::class)->syncUserCategories($produto, is_array($categoryIds) ? $categoryIds : []);
+        }
+
         event(new ProductUpdated($produto));
 
         $url = route('produtos.edit', $produto);
@@ -1117,6 +1141,10 @@ class ProdutosController extends Controller
             'is_active' => $produto->is_active,
             'checkout_config' => $produto->checkout_config,
         ]);
+        $userCategoryIds = $produto->categories()->whereNull('product_categories.system_key')->pluck('product_categories.id')->all();
+        if ($userCategoryIds !== []) {
+            $newProduct->categories()->sync($userCategoryIds);
+        }
 
         event(new ProductDuplicated($produto, $newProduct));
 
@@ -1416,6 +1444,7 @@ class ProdutosController extends Controller
             'is_active' => $p->is_active,
             'conversion_pixels' => $p->conversion_pixels,
             'combo_product_ids' => $p->combo_product_ids ?? [],
+            'categories' => $p->categories->map(fn (ProductCategory $c) => $c->toBadge())->values()->all(),
         ];
     }
 
