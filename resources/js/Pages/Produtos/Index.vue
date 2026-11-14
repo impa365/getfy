@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
@@ -16,6 +16,8 @@ import {
     ExternalLink,
     Download,
     Upload,
+    Search,
+    X,
 } from 'lucide-vue-next';
 import ProductPackageModal from '@/components/produtos/ProductPackageModal.vue';
 
@@ -29,7 +31,7 @@ const props = defineProps({
     plugin_card_actions: { type: [Object, Array], default: () => [] },
     plugin_form_sections: { type: Array, default: () => [] },
     categorias: { type: Array, default: () => [] },
-    categoria_filtro: { type: Object, default: () => ({ atual: '', total: 0, sem_categoria: 0 }) },
+    categoria_filtro: { type: Object, default: () => ({ atual: '', total: 0, sem_categoria: 0, busca: '' }) },
 });
 
 const produtosList = computed(() => props.produtos?.data ?? (Array.isArray(props.produtos) ? props.produtos : []));
@@ -46,8 +48,28 @@ const filtroCategorias = computed(() => {
     return chips;
 });
 
+const busca = ref(props.categoria_filtro?.busca ?? '');
+
+function aplicarFiltros(categoria, termo) {
+    const params = {};
+    if (categoria) params.categoria = categoria;
+    if (termo.trim()) params.busca = termo.trim();
+    router.get('/produtos', params, { preserveState: true, preserveScroll: true, replace: true });
+}
+
 function filtrarCategoria(key) {
-    router.get('/produtos', key ? { categoria: key } : {}, { preserveState: true, preserveScroll: true });
+    aplicarFiltros(key, busca.value);
+}
+
+let buscaTimer = null;
+watch(busca, (termo) => {
+    clearTimeout(buscaTimer);
+    if (termo.trim() === (props.categoria_filtro?.busca ?? '')) return;
+    buscaTimer = setTimeout(() => aplicarFiltros(props.categoria_filtro?.atual ?? '', termo), 350);
+});
+
+function limparBusca() {
+    busca.value = '';
 }
 
 function badgeStyle(color) {
@@ -154,26 +176,48 @@ function pluginActions(productId) {
         </div>
         <PluginRenderZone zone="produtos.index.after_toolbar" />
 
-        <div v-if="categorias.length" class="flex flex-wrap items-center gap-2" aria-label="Filtrar por categoria">
-            <button
-                v-for="chip in filtroCategorias"
-                :key="chip.key || 'todos'"
-                type="button"
-                :class="[
-                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
-                    (categoria_filtro?.atual ?? '') === chip.key
-                        ? 'border-transparent bg-[var(--color-primary)] text-white'
-                        : 'border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-white',
-                ]"
-                @click="filtrarCategoria(chip.key)"
-            >
-                <span v-if="chip.color" class="h-2 w-2 rounded-full" :style="{ backgroundColor: chip.color }" aria-hidden="true" />
-                {{ chip.label }}
-                <span class="text-xs opacity-70">{{ chip.count }}</span>
-            </button>
-            <Link href="/produtos/categorias" class="ml-1 text-xs text-zinc-500 hover:text-[var(--color-primary)] dark:text-zinc-400">
-                Gerenciar categorias
-            </Link>
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div class="relative w-full shrink-0 lg:w-72">
+                <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden="true" />
+                <input
+                    v-model="busca"
+                    type="search"
+                    placeholder="Buscar produto..."
+                    aria-label="Buscar produto pelo nome"
+                    class="w-full rounded-full border border-zinc-200 bg-white py-2 pl-9 pr-9 text-sm text-zinc-900 placeholder-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-700 dark:bg-zinc-800 dark:text-white [&::-webkit-search-cancel-button]:hidden"
+                    @keydown.esc="limparBusca"
+                />
+                <button
+                    v-if="busca"
+                    type="button"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-white"
+                    aria-label="Limpar busca"
+                    @click="limparBusca"
+                >
+                    <X class="h-4 w-4" />
+                </button>
+            </div>
+            <div v-if="categorias.length" class="flex flex-wrap items-center gap-2" aria-label="Filtrar por categoria">
+                <button
+                    v-for="chip in filtroCategorias"
+                    :key="chip.key || 'todos'"
+                    type="button"
+                    :class="[
+                        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
+                        (categoria_filtro?.atual ?? '') === chip.key
+                            ? 'border-transparent bg-[var(--color-primary)] text-white'
+                            : 'border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-white',
+                    ]"
+                    @click="filtrarCategoria(chip.key)"
+                >
+                    <span v-if="chip.color" class="h-2 w-2 rounded-full" :style="{ backgroundColor: chip.color }" aria-hidden="true" />
+                    {{ chip.label }}
+                    <span class="text-xs opacity-70">{{ chip.count }}</span>
+                </button>
+                <Link href="/produtos/categorias" class="ml-1 text-xs text-zinc-500 hover:text-[var(--color-primary)] dark:text-zinc-400">
+                    Gerenciar categorias
+                </Link>
+            </div>
         </div>
 
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -356,7 +400,15 @@ function pluginActions(productId) {
             class="panel-card-dashed flex flex-col items-center justify-center py-16"
         >
             <Package class="h-14 w-14 text-zinc-400 dark:text-zinc-500" />
-            <template v-if="categoria_filtro?.atual">
+            <template v-if="categoria_filtro?.busca">
+                <p class="mt-3 text-zinc-600 dark:text-zinc-400">
+                    Nenhum produto encontrado para "{{ categoria_filtro.busca }}"{{ categoria_filtro?.atual ? ' nesta categoria' : '' }}.
+                </p>
+                <Button class="mt-4" variant="outline" @click="limparBusca">
+                    Limpar busca
+                </Button>
+            </template>
+            <template v-else-if="categoria_filtro?.atual">
                 <p class="mt-3 text-zinc-600 dark:text-zinc-400">Nenhum produto nesta categoria.</p>
                 <Button class="mt-4" variant="outline" @click="filtrarCategoria('')">
                     Ver todos os produtos

@@ -76,6 +76,17 @@ class ProdutosController extends Controller
         } else {
             $categoria = '';
         }
+        $busca = trim(mb_substr((string) $request->query('busca', ''), 0, 100));
+        if ($busca !== '') {
+            $like = fn (string $s) => '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $s).'%';
+            $slug = Str::slug($busca);
+            $query->where(function ($q) use ($busca, $slug, $like) {
+                $q->whereRaw('LOWER(name) LIKE ?', [$like(mb_strtolower($busca))]);
+                if ($slug !== '') {
+                    $q->orWhere('slug', 'like', $like($slug));
+                }
+            });
+        }
         $products = $query->paginate(20)->withQueryString()->through(fn (Product $p) => $this->productToArray($p, $tenantCurrencies));
 
         $productTypes = collect(Product::typeConfig())->map(fn ($config, $value) => [
@@ -91,7 +102,7 @@ class ProdutosController extends Controller
         $data = new \ArrayObject([
             'produtos' => $products,
             'categorias' => app(ProductCategoryService::class)->listWithCounts($tenantId, $visibleIds),
-            'categoria_filtro' => ['atual' => $categoria, 'total' => $totalVisible, 'sem_categoria' => $uncategorized],
+            'categoria_filtro' => ['atual' => $categoria, 'total' => $totalVisible, 'sem_categoria' => $uncategorized, 'busca' => $busca],
             'productTypes' => $productTypes,
             'billingTypes' => $billingTypes,
             'exchange_rates' => $this->legacyExchangeRatesMap($tenantCurrencies),
