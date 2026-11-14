@@ -121,7 +121,9 @@ function usosText(c) {
                                 {{ formatValor(c) }}
                             </td>
                             <td class="whitespace-nowrap px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
-                                {{ c.product_name ?? 'Todos' }}
+                                <span class="block max-w-xs cursor-default truncate" :title="c.product_name ?? 'Todos'">
+                                    {{ c.product_name ?? 'Todos' }}
+                                </span>
                             </td>
                             <td class="whitespace-nowrap px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                                 {{ usosText(c) }}
