@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.4-impa.2] - 14-11-2026 — Edição Comunidade IMPA
+
+### Correções
+
+- **PostgreSQL: ofertas extras e assinaturas davam erro 500.** A migração que torna `checkout_slug` opcional em `product_offers` e `subscription_plans` só rodava no MySQL/MariaDB; no PostgreSQL a coluna continuava obrigatória, e criar uma oferta extra ou mudar um produto para Assinatura (que cria o plano base sem link próprio) falhava. Nova migração corrige as duas tabelas no PostgreSQL. Roda sozinha na atualização e não altera dados.
+- **Erro 500 depois de rodar comandos como root**: se o `laravel.log` fosse criado pelos comandos de inicialização (root), o PHP-FPM não conseguia escrever nele e qualquer aviso virava erro 500. O entrypoint agora entrega `storage/logs` ao `www-data` antes de iniciar.
+
 ## [2.0.4-impa.1] - 13-11-2026 — Edição Comunidade IMPA
 
 Base: `getfy-opensource/getfy` main de 18-09-2026 (2.0.4 + correções posteriores).

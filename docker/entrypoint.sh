@@ -263,4 +263,9 @@ if ($out !== "") {
 }
 ';
 
+# Os comandos artisan acima rodam como root: se criarem o laravel.log, o PHP-FPM (www-data) não consegue
+# escrever nele e qualquer aviso registrado vira erro 500.
+mkdir -p storage/logs && touch storage/logs/laravel.log
+chown -R www-data:www-data storage/logs 2>/dev/null || true
+
 exec "$@"
